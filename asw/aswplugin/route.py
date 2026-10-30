@@ -23,6 +23,11 @@ def call_legs(get, waypoints):
     return legs
 
 
+def end_points(start, dest):
+    """The two waypoints of a Route to here request ({"lat", "lon"} dicts), named Start and Destination."""
+    return [{"lat": float(p["lat"]), "lon": float(p["lon"]), "name": n} for p, n in ((start, "Start"), (dest, "Destination"))]
+
+
 def join_legs(waypoints, legs):
     """legs[i] is the asw /route JSON for waypoints[i] -> waypoints[i+1]."""
     points = [dict(waypoints[0])]

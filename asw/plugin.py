@@ -20,15 +20,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # AvNav loads this file by path, so aswplugin is not importable otherwise
 
 from aswplugin import install  # noqa: E402
-from aswplugin.route import LegError, call_legs, join_legs, route_gpx, safe_name  # noqa: E402
+from aswplugin.route import LegError, call_legs, end_points, join_legs, route_gpx, safe_name  # noqa: E402
 
 GRAPH_MB = 1430
 MISSING = "Map data is not installed. Press Download to get it: about 540 MB, use Wi-Fi."
 AVNAV_STATUS = {"missing": "INACTIVE", "downloading": "STARTED", "starting": "STARTED", "ready": "NMEA", "error": "ERROR"}
 DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True, "arctic": False}
 NO_ROUTE = "No route to save. Make a route first."
+REPLACED = "The route was replaced. Make it again."
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-PRCTL = ctypes.CDLL(None).prctl  # Linux; looked up here because the forked child must not load anything
+try:  # Linux; looked up here because the forked child must not load anything
+    PRCTL = ctypes.CDLL(None).prctl
+except (AttributeError, OSError, TypeError):  # other systems: the plugin still loads and preflight says why not
+    PRCTL = None
 
 
 def die_with_parent():
@@ -65,7 +69,8 @@ class Plugin:
         self.child = self.port = self.key = self.dl = None
         self.started_at = self.restart_at = 0
         self.want_start = False
-        self.pending = None  # points of the last computed route, until the sailor saves it (one sailor)
+        self.pending = None  # (id, points) of the last computed route; a newer route call replaces it
+        self.route_id = 0
         self.status = {"state": "starting", "detail": "Starting", "warnings": list(self.warnings), "downloadedMB": 0}
         api.registerRestart(self.stop)
 
@@ -153,7 +158,7 @@ class Plugin:
             with open(self.log_path, "wb") as log:
                 child = subprocess.Popen(cmd, env=dict(os.environ, ASW_API_KEY=key),  # env keeps the key out of ps
                                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
-                                         preexec_fn=die_with_parent)
+                                         preexec_fn=die_with_parent if PRCTL else None)
         except (OSError, subprocess.SubprocessError) as e:
             self.set("error", "Cannot start asw: %s" % e)
             return
@@ -191,7 +196,7 @@ class Plugin:
         try:
             install.cleanup_stale(self.graph)
             machine = platform.machine()
-            errors, warnings = install.preflight(self.dir, machine, install.mem_total(),
+            errors, warnings = install.preflight(self.dir, sys.platform, machine, install.mem_total(),
                                                  shutil.disk_usage(self.dir).free, os.path.exists(self.graph))
             self.warnings += [w for w in warnings if w not in self.warnings]
             if errors:
@@ -218,7 +223,7 @@ class Plugin:
             if url == "route":
                 return self.route(arg("data"))
             if url == "save":
-                return self.save(arg("name"), arg("overwrite") == "1")
+                return self.save(arg("id"), arg("name"), arg("overwrite") == "1")
             if url == "options":
                 return self.options(arg("data"))
             return {"ok": False, "error": "Unknown request: %s" % url}
@@ -233,8 +238,7 @@ class Plugin:
         try:
             d = json.loads(data)
             sb, canals, arctic = d.get("shore_buffer", 0), d.get("canals", True), d.get("arctic", False)
-            points = [{"lat": float(d[k]["lat"]), "lon": float(d[k]["lon"]), "name": n}
-                      for k, n in (("from", "Start"), ("to", "Destination"))]
+            points = end_points(d["from"], d["to"])
             valid = isinstance(canals, bool) and isinstance(arctic, bool) \
                 and not isinstance(sb, bool) and 0 <= float(sb) <= 5 \
                 and all(-90 <= p["lat"] <= 90 and -180 <= p["lon"] <= 180 for p in points)
@@ -266,21 +270,26 @@ class Plugin:
             return {"ok": False, "error": "asw did not answer. Try again."}
         pts, nm, land = join_legs(points, legs)
         with self.lock:
-            self.pending = pts
-        return {"ok": True, "distance_nm": nm, "points": len(pts), "land": land,
+            self.route_id += 1
+            self.pending = (str(self.route_id), pts)
+            rid = self.route_id
+        return {"ok": True, "id": rid, "distance_nm": nm, "points": len(pts), "land": land,
                 "name": time.strftime("asw %Y-%m-%d %H:%M")}  # local time of the AvNav server
 
-    def save(self, name, overwrite):
+    def save(self, rid, name, overwrite):
+        """Writes the pending route rid; two devices can use AvNav at once, so it must be the route this one made."""
         if not safe_name(name):
             return {"ok": False, "error": "Invalid route name."}
         path = os.path.join(self.routes_dir, name + ".gpx")
         with self.lock:
             if self.pending is None:
                 return {"ok": False, "error": NO_ROUTE}
+            if rid != self.pending[0]:
+                return {"ok": False, "error": REPLACED}
             if os.path.exists(path) and not overwrite:
                 return {"ok": False, "exists": True}
             os.makedirs(self.routes_dir, exist_ok=True)
-            write_atomic(path, route_gpx(name, self.pending))
+            write_atomic(path, route_gpx(name, self.pending[1]))
         return {"ok": True, "name": name}
 
     def options(self, data):

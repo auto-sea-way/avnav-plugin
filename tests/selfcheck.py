@@ -1,6 +1,6 @@
 import os, sys, tempfile, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
-from aswplugin.route import join_legs, route_gpx, call_legs, LegError, safe_name
+from aswplugin.route import join_legs, route_gpx, call_legs, LegError, safe_name, end_points
 from aswplugin.install import binary_asset, release_url, preflight, cleanup_stale, download_binary, mem_total
 
 wps = [{"lat": 36.0, "lon": 28.0, "name": n} for n in "ABC"]
@@ -23,11 +23,12 @@ def test_land_waypoints_named():
     a = dict(ab, land_legs=[1]); b = dict(bc, land_legs=[0])
     assert join_legs(wps, [a, b])[2] == ["B"]
 
-ends = [{"lat": 36.0, "lon": 28.0, "name": "Start"}, {"lat": 36.2, "lon": 28.2, "name": "Destination"}]
+ends = end_points({"lat": 36.0, "lon": 28.0}, {"lat": "36.2", "lon": 28.2})  # what Plugin.route passes
 ad = {"geometry": {"type": "LineString", "coordinates": [[28.0, 36.0], [28.05, 36.05], [28.1, 36.1], [28.2, 36.2]]},
       "distance_nm": 13.55, "shore_buffer_nm": 0.1, "land_legs": []}
 
 def test_one_leg():
+    assert ends[1] == {"lat": 36.2, "lon": 28.2, "name": "Destination"}
     pts, nm, land = join_legs(ends, [ad])
     assert [p["name"] for p in pts] == ["Start", "asw 1", "asw 2", "Destination"]
     assert nm == 13.6 and land == []
@@ -64,16 +65,20 @@ def test_gpx_roundtrip():
 def test_unsupported_machine():
     assert binary_asset("armv7l") is None and binary_asset("aarch64") == "asw-linux-arm64"
     assert binary_asset("arm64") == "asw-linux-arm64" and binary_asset("x86_64") == binary_asset("amd64") == "asw-linux-amd64"
-    assert preflight("/x", "armv7l", 4e9, 5e9)[0]
+    assert preflight("/x", "linux", "armv7l", 4e9, 5e9)[0] == \
+        ["This system is not supported (linux armv7l). asw needs 64-bit Linux on arm64 or x86_64."]
+    for system in ("darwin", "win32"):
+        assert preflight("/x", system, "arm64", 4e9, 5e9)[0] == \
+            ["This system is not supported (%s arm64). asw needs 64-bit Linux on arm64 or x86_64." % system]
     assert release_url("0.11.0", "asw-linux-arm64") == "https://github.com/auto-sea-way/asw/releases/download/v0.11.0/asw-linux-arm64"
 
 def test_preflight_space_and_ram():
-    assert preflight("/x", "aarch64", 4e9, 1e9)[0]
-    assert preflight("/x", "aarch64", 4e9, 1e9, graph_present=True) == ([], [])  # only the binary to get
-    errs, warns = preflight("/x", "aarch64", 1e9, 5e9)
+    assert preflight("/x", "linux", "aarch64", 4e9, 1e9)[0]
+    assert preflight("/x", "linux", "aarch64", 4e9, 1e9, graph_present=True) == ([], [])  # only the binary to get
+    errs, warns = preflight("/x", "linux", "aarch64", 1e9, 5e9)
     assert not errs and warns
-    assert preflight("/x", "x86_64", 4e9, 5e9) == ([], [])
-    assert preflight("/x", "aarch64", 0, 5e9) == ([], [])
+    assert preflight("/x", "linux", "x86_64", 4e9, 5e9) == ([], [])
+    assert preflight("/x", "linux", "aarch64", 0, 5e9) == ([], [])
     assert isinstance(mem_total(), int)
 
 def test_stale_tmp_removed():

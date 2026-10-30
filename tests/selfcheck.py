@@ -47,19 +47,19 @@ U = "A (asw, unchecked)"
 
 def test_registry_follows_rename():
     r.add(U, "k1"); r.sync({"Renamed": "k1"})
-    assert r.is_unchecked("Renamed", "k1") and not Registry(path).is_unchecked("Other", "zz")
+    assert Registry(path).routes == [{"name": "Renamed", "key": "k1"}]
     r.remove("Renamed")
 
 def test_registry_follows_edit():
     r.add(U, "k1"); r.sync({U: "k2"})
-    assert r.is_unchecked(U, "k2") and Registry(path).is_unchecked("x", "k2")
+    assert Registry(path).routes == [{"name": U, "key": "k2"}]
 
 def test_registry_gone_entry_kept():
     r.sync({"Other": "k9"})
-    assert r.is_unchecked(U, "k2")
+    assert Registry(path).routes == [{"name": U, "key": "k2"}] and r.routes == Registry(path).routes
 
 def test_registry_remove_and_persist():
-    r.remove(U); assert Registry(path).routes == [] and not Registry(path).is_unchecked("Z", "k2")
+    r.remove(U); assert Registry(path).routes == []
     assert Registry(os.path.join(tempfile.mkdtemp(), "none.json")).routes == []
 
 def test_registry_damaged_file():

@@ -19,7 +19,8 @@ class Registry:
             pass
         except (ValueError, KeyError, TypeError):
             self.routes, self.damaged = [], True
-            os.replace(path, path + ".bad")
+            with contextlib.suppress(OSError):
+                os.replace(path, path + ".bad")
 
     def _save(self):
         d = os.path.dirname(os.path.abspath(self.path))

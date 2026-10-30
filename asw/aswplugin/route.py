@@ -2,10 +2,14 @@
 from xml.sax.saxutils import escape, quoteattr
 
 
+FORBIDDEN = '"*/:<>?\\|'  # AvNav's clean_filename (server/avnav_util.py) refuses these and control characters
+DEFAULT_NAME = "asw %Y-%m-%d %H%M"  # time.strftime format; no ":" because AvNav refuses it
+
+
 def safe_name(name):
     """A route name usable as a file name in AvNav's routes dir."""
     return isinstance(name, str) and name.strip() != "" and name.isprintable() and len(name.encode()) <= 200 \
-        and not name.startswith(".") and not any(c in name for c in "/\\")
+        and not name.startswith(".") and not any(c in name for c in FORBIDDEN)
 
 
 class LegError(Exception):

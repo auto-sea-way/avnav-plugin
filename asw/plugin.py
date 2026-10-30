@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # AvNav loads this file by path, so aswplugin is not importable otherwise
 
 from aswplugin import install  # noqa: E402
-from aswplugin.route import LegError, call_legs, end_points, join_legs, route_gpx, safe_name  # noqa: E402
+from aswplugin.route import DEFAULT_NAME, FORBIDDEN, LegError, call_legs, end_points, join_legs, route_gpx, safe_name  # noqa: E402
 
 GRAPH_MB = 1430
 MISSING = "Map data is not installed. Press Download to get it: about 540 MB, use Wi-Fi."
@@ -274,12 +274,13 @@ class Plugin:
             self.pending = (str(self.route_id), pts)
             rid = self.route_id
         return {"ok": True, "id": rid, "distance_nm": nm, "points": len(pts), "land": land,
-                "name": time.strftime("asw %Y-%m-%d %H:%M")}  # local time of the AvNav server
+                "name": time.strftime(DEFAULT_NAME)}  # local time of the AvNav server
 
     def save(self, rid, name, overwrite):
         """Writes the pending route rid; two devices can use AvNav at once, so it must be the route this one made."""
         if not safe_name(name):
-            return {"ok": False, "error": "Invalid route name."}
+            return {"ok": False, "error": "Invalid route name. It must not be empty, start with \".\" or contain "
+                                          "any of these characters: %s" % " ".join(FORBIDDEN)}
         path = os.path.join(self.routes_dir, name + ".gpx")
         with self.lock:
             if self.pending is None:

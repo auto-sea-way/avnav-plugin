@@ -1,6 +1,6 @@
-import os, sys, tempfile, xml.etree.ElementTree as ET
+import os, sys, tempfile, time, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
-from aswplugin.route import join_legs, route_gpx, call_legs, LegError, safe_name, end_points
+from aswplugin.route import join_legs, route_gpx, call_legs, LegError, safe_name, end_points, DEFAULT_NAME
 from aswplugin.install import binary_asset, release_url, preflight, cleanup_stale, download_binary, mem_total
 
 wps = [{"lat": 36.0, "lon": 28.0, "name": n} for n in "ABC"]
@@ -38,9 +38,9 @@ def test_one_leg():
     assert join_legs(ends, [dict(ad, land_legs=[1])])[2] == []
 
 def test_safe_name():
-    for ok in ("asw 2026-10-30 14:05", "Bodrum trip", "Ä" * 100):
+    for ok in ("asw 2026-10-30 1405", "Bodrum trip", "Ä" * 100, time.strftime(DEFAULT_NAME)):
         assert safe_name(ok), ok
-    for bad in ("", "  ", ".hidden", "a/b", "a\\b", "a\0b", "a\nb", "a\tb", "x" * 201, "Ä" * 101, None, 5):
+    for bad in ("", "  ", ".hidden", "a/b", "a\\b", "a\0b", "a:b", "a?b", 'a"b', "a*b", "a<b", "a>b", "a|b", "a\nb", "a\tb", "x" * 201, "Ä" * 101, None, 5):
         assert not safe_name(bad), bad
 
 def test_leg_without_route_reported():

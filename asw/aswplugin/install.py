@@ -2,6 +2,7 @@
 import contextlib
 import http.client
 import os
+import re
 import subprocess
 import urllib.request
 
@@ -19,17 +20,29 @@ def release_url(asw_version, asset):
     return "https://github.com/auto-sea-way/asw/releases/download/v%s/%s" % (asw_version, asset)
 
 
-def preflight(data_dir, system, machine, mem_total, free, graph_present=False):
-    """system is sys.platform, machine is platform.machine()."""
+def check_system(system, machine, mem_total):
+    """system is sys.platform, machine is platform.machine(); returns (errors, warnings)."""
     errors, warnings = [], []
     if not system.startswith("linux") or not binary_asset(machine):
         errors.append("This system is not supported (%s %s). asw needs 64-bit Linux on arm64 or x86_64."
                       % (system, machine))
-    if not graph_present and free < NEED_FREE_BYTES:  # the binary alone is a few MB
-        errors.append("Not enough free space: about %.1f GB needed in %s." % (NEED_FREE_BYTES / 1e9, data_dir))
     if 0 < mem_total < WARN_RAM_BYTES:  # 0 = unknown
         warnings.append("Less than 2 GB of RAM: routing will be slow.")
     return errors, warnings
+
+
+def preflight(data_dir, system, machine, mem_total, free, graph_present=False):
+    errors, warnings = check_system(system, machine, mem_total)
+    if not graph_present and free < NEED_FREE_BYTES:  # the binary alone is a few MB
+        errors.append("Not enough free space: about %.1f GB needed in %s." % (NEED_FREE_BYTES / 1e9, data_dir))
+    return errors, warnings
+
+
+def download_stopped(log_line, why):
+    """Status text when asw exits before the graph is there; log_line is its last error line."""
+    # "3: Connection refused (os error 111)" -> "Connection refused"
+    reason = re.sub(r"^\d+: | \(os error \d+\)$| for url \(.*\)$", "", log_line).strip()[:80] or why
+    return "The map data download stopped (%s). Check the internet connection and press Try again." % reason
 
 
 def mem_total():

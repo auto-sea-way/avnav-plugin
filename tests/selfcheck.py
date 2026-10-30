@@ -1,7 +1,7 @@
 import os, sys, tempfile, time, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
 from aswplugin.route import join_legs, route_gpx, call_legs, LegError, safe_name, end_points, DEFAULT_NAME
-from aswplugin.install import binary_asset, release_url, preflight, cleanup_stale, download_binary, mem_total
+from aswplugin.install import binary_asset, release_url, preflight, check_system, download_stopped, cleanup_stale, download_binary, mem_total
 
 wps = [{"lat": 36.0, "lon": 28.0, "name": n} for n in "ABC"]
 wps[1].update(lat=36.1, lon=28.1); wps[2].update(lat=36.2, lon=28.2)
@@ -80,6 +80,22 @@ def test_preflight_space_and_ram():
     assert preflight("/x", "linux", "x86_64", 4e9, 5e9) == ([], [])
     assert preflight("/x", "linux", "aarch64", 0, 5e9) == ([], [])
     assert isinstance(mem_total(), int)
+
+def test_check_system():  # Plugin.run checks this at start; free space waits for the download
+    assert check_system("linux", "aarch64", 4e9) == ([], [])
+    assert check_system("linux", "aarch64", 1e9) == ([], ["Less than 2 GB of RAM: routing will be slow."])
+    assert check_system("darwin", "arm64", 1e9) == (
+        ["This system is not supported (darwin arm64). asw needs 64-bit Linux on arm64 or x86_64."],
+        ["Less than 2 GB of RAM: routing will be slow."])
+
+def test_download_stopped():
+    tail = ". Check the internet connection and press Try again."
+    assert download_stopped("3: Connection refused (os error 111)", "exit code 1") == \
+        "The map data download stopped (Connection refused" + ")" + tail
+    assert download_stopped("HTTP status client error (404 Not Found) for url (https://x/asw.graph.zst)", "exit code 1") == \
+        "The map data download stopped (HTTP status client error (404 Not Found))" + tail
+    assert download_stopped("", "killed by signal 9") == "The map data download stopped (killed by signal 9)" + tail
+    assert len(download_stopped("x" * 500, "exit code 1")) < 200
 
 def test_stale_tmp_removed():
     d = tempfile.mkdtemp()

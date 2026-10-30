@@ -28,7 +28,7 @@ export default (api) => {
     const say = (text, ctx, buttons = [{name: "ok", shortText: "OK"}]) =>
         api.showDialog({title: TITLE, text, buttons}, ctx);
     // the map can report a longitude past 180 after panning; keep others as they are (no float noise)
-    const lon180 = (lon) => (lon >= -180 && lon <= 180 ? lon : ((lon + 540) % 360) - 180);
+    const lon180 = (lon) => (lon >= -180 && lon <= 180 ? lon : (((lon + 180) % 360) + 360) % 360 - 180);
     let busy = false;
 
     // the boat position and the crosshair now, or the reason why there is none
@@ -97,7 +97,7 @@ export default (api) => {
                         }
                         if (!s.ok) return say(s.error, ev);
                         await close();
-                        say(`The route "${s.name}" is saved. You find it on the Routes page.`, ctx);
+                        say(`The route "${s.name}" is saved. You can find it on the Routes page.`, ctx);
                     };
                     save(false);
                 }

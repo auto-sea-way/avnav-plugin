@@ -17,17 +17,21 @@ import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)  # AvNav loads this file by path, so aswplugin is not importable otherwise
+if HERE not in sys.path:  # AvNav loads this file by path, so aswplugin is not importable otherwise
+    sys.path.insert(0, HERE)
+# a plugin update in AvNav runs this file again without a restart: drop the old aswplugin modules
+for name in [n for n in sys.modules if n == "aswplugin" or n.startswith("aswplugin.")]:
+    del sys.modules[name]
 
 from aswplugin import install  # noqa: E402
 from aswplugin.route import DEFAULT_NAME, FORBIDDEN, LegError, call_legs, end_points, join_legs, route_gpx, safe_name  # noqa: E402
 
 GRAPH_MB = 1430
-MISSING = "Map data is not installed. Press Download map data to get it: about 540 MB, use Wi-Fi."
+MISSING = "Map data is not installed. On the chart page press To here, then Download map data: about 540 MB, use Wi-Fi."
 AVNAV_STATUS = {"missing": "INACTIVE", "downloading": "STARTED", "starting": "STARTED", "ready": "NMEA", "error": "ERROR"}
 DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True, "arctic": False}
 NO_ROUTE = "No route to save. Make a route first."
-REPLACED = "The route was replaced. Make it again."
+REPLACED = "A newer route was made, maybe on another device. Make this route again."
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 try:  # Linux; looked up here because the forked child must not load anything
     PRCTL = ctypes.CDLL(None).prctl
@@ -80,7 +84,7 @@ class Plugin:
         new = {"state": state, "detail": detail, "warnings": list(self.warnings), "downloadedMB": mb}
         if new != self.status:
             self.status = new
-            self.api.setStatus(AVNAV_STATUS[state], detail)
+            self.api.setStatus(AVNAV_STATUS[state], " ".join([detail] + self.warnings))
 
     def run(self):
         # own event per run: AvNav's shouldStopMainThread() is True until it has stored the new thread,
@@ -88,6 +92,11 @@ class Plugin:
         self.stopping = stopping = threading.Event()
         self.api.registerRequestHandler(self.handle)  # AvNav drops the handler when the plugin is disabled
         install.cleanup_stale(self.graph)
+        errors, self.warnings = install.check_system(sys.platform, platform.machine(), install.mem_total())
+        if errors:
+            self.set("error", " ".join(errors))
+            stopping.wait()  # returning would make AvNav replace the status with "plugin run finished"
+            return
         if os.path.exists(self.bin) and os.path.exists(self.graph):
             self.want_start = True
             self.set("starting", "Starting asw")
@@ -131,9 +140,11 @@ class Plugin:
             self.child = None
             why = "killed by signal %d" % -code if code < 0 else "exit code %d" % code
             line = self.last_log_line()
-            self.set("error", "asw stopped (%s)%s" % (why, ": " + line if line else ""))
-            if os.path.exists(self.graph):  # never retry a graph download the sailor did not ask for
+            if os.path.exists(self.graph):
+                self.set("error", "asw stopped (%s)%s" % (why, ": " + line if line else ""))
                 self.restart_at = max(time.monotonic(), self.started_at + 30)
+            else:  # never retry a graph download the sailor did not ask for
+                self.set("error", install.download_stopped(line, why))
             return
         if not os.path.exists(self.graph):
             try:

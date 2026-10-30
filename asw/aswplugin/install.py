@@ -1,5 +1,6 @@
 """Checks and downloads needed before asw can run on this system."""
 import contextlib
+import http.client
 import os
 import subprocess
 import urllib.request
@@ -24,7 +25,7 @@ def preflight(data_dir, machine, mem_total, free):
         errors.append("This system is not supported (%s). asw needs 64-bit Linux on arm64 or x86_64." % machine)
     if free < NEED_FREE_BYTES:
         errors.append("Not enough free space: about %.1f GB needed in %s." % (NEED_FREE_BYTES / 1e9, data_dir))
-    if mem_total < WARN_RAM_BYTES:
+    if 0 < mem_total < WARN_RAM_BYTES:  # 0 = unknown
         warnings.append("Less than 2 GB of RAM: routing will be slow.")
     return errors, warnings
 
@@ -48,16 +49,22 @@ def cleanup_stale(graph_path):
 def download_binary(url, dest):
     part = dest + ".part"
     try:
-        with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
-            while True:
-                chunk = r.read(1 << 20)
-                if not chunk:
-                    break
-                f.write(chunk)
-        os.chmod(part, 0o755)
-        subprocess.run([part, "--version"], check=True, capture_output=True, timeout=10)
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r, open(part, "wb") as f:
+                while True:
+                    chunk = r.read(1 << 20)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            raise RuntimeError("Download failed. Check the internet connection and try again.") from e
+        try:
+            os.chmod(part, 0o755)
+            subprocess.run([part, "--version"], check=True, capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise RuntimeError("this system cannot run asw") from e
         os.replace(part, dest)
-    except (OSError, ValueError, subprocess.SubprocessError) as e:
+    except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(part)
-        raise RuntimeError("this system cannot run asw") from e
+        raise

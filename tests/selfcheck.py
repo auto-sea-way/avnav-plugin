@@ -85,6 +85,7 @@ def test_preflight_space_and_ram():
     errs, warns = preflight("/x", "aarch64", 1e9, 5e9)
     assert not errs and warns
     assert preflight("/x", "x86_64", 4e9, 5e9) == ([], [])
+    assert preflight("/x", "aarch64", 0, 5e9) == ([], [])
     assert isinstance(mem_total(), int)
 
 def test_stale_tmp_removed():
@@ -106,8 +107,8 @@ def test_download_binary():
     assert not os.path.exists(dest) and not os.path.exists(dest + ".part")
     try:
         download_binary("file://" + d + "/missing", dest); assert False
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        assert str(e) == "Download failed. Check the internet connection and try again."
     assert not os.path.exists(dest + ".part")
     open(src, "w").write("#!/bin/sh\necho asw 0.0.0\n")
     download_binary("file://" + src, dest)

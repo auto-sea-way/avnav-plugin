@@ -15,35 +15,25 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from xml.sax.saxutils import escape as xml_escape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # AvNav loads this file by path, so aswplugin is not importable otherwise
 
 from aswplugin import install  # noqa: E402
-from aswplugin.route import SUFFIX, LegError, call_legs, checked_name, gpx_key, join_legs, leg_route, points_key, \
-    route_gpx, route_off, unchecked_name  # noqa: E402
-from aswplugin.unchecked import Registry  # noqa: E402
+from aswplugin.route import LegError, call_legs, join_legs, route_gpx, safe_name  # noqa: E402
 
 GRAPH_MB = 1430
 MISSING = "Map data is not installed. Press Download to get it: about 540 MB, use Wi-Fi."
-DAMAGED = "The list of unchecked asw routes was damaged and reset. Check every asw route before you use it."
 AVNAV_STATUS = {"missing": "INACTIVE", "downloading": "STARTED", "starting": "STARTED", "ready": "NMEA", "error": "ERROR"}
 DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True, "arctic": False}
-WATCH_FAILED = "Cannot watch the active route on this AvNav version."
-ALARM = "asw-unchecked"
-ALARM_TEXT = "This asw route is not checked yet. Check it and press Mark as checked in the Auto route dialog."
+NO_ROUTE = "No route to save. Make a route first."
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+PRCTL = ctypes.CDLL(None).prctl  # Linux; looked up here because the forked child must not load anything
 
 
 def die_with_parent():
     # Linux PR_SET_PDEATHSIG: asw gets SIGTERM when the run() thread that started it ends, even if AvNav is killed.
-    ctypes.CDLL(None).prctl(1, signal.SIGTERM)
-
-
-def safe_name(name):
-    return isinstance(name, str) and name.strip() != "" and not name.startswith(".") \
-        and not any(c in name for c in "/\\\0")
+    PRCTL(1, signal.SIGTERM)
 
 
 def write_atomic(path, text):
@@ -69,15 +59,13 @@ class Plugin:
         self.routes_dir = os.path.join(api.getDataDir(), "routes")
         with open(os.path.join(HERE, "plugin.json")) as f:
             self.asw_version = json.load(f)["aswVersion"]
-        self.registry = Registry(os.path.join(self.dir, "unchecked.json"))
-        self.warnings = [DAMAGED] if self.registry.damaged else []
+        self.warnings = []
         self.lock = threading.Lock()
         self.stopping = threading.Event()
         self.child = self.port = self.key = self.dl = None
         self.started_at = self.restart_at = 0
         self.want_start = False
-        self.keys = {}  # route file path -> ((mtime, size), points key)
-        self.alarm = None  # (name, points key) of the unchecked route the watcher last stopped while its alarm runs
+        self.pending = None  # points of the last computed route, until the sailor saves it (one sailor)
         self.status = {"state": "starting", "detail": "Starting", "warnings": list(self.warnings), "downloadedMB": 0}
         api.registerRestart(self.stop)
 
@@ -102,14 +90,13 @@ class Plugin:
             self.set("missing", MISSING)
         failed = None
         while not stopping.wait(1):
-            try:  # the watcher below must keep running whatever tick does
+            try:  # the loop must keep running whatever tick does
                 self.tick()
                 failed = None
             except Exception as e:
                 if str(e) != failed:
                     self.api.error("asw control failed: %s", e)
                 failed = str(e)
-            self.watch()
 
     def stop(self):
         self.stopping.set()
@@ -131,7 +118,7 @@ class Plugin:
             return
         if c is None:
             if self.want_start or (self.restart_at and time.monotonic() >= self.restart_at):
-                self.want_start, self.restart_at = False, 0
+                self.restart_at = 0
                 self.start()
             return
         code = c.poll()
@@ -155,6 +142,7 @@ class Plugin:
             self.set("starting", "Loading map data")
 
     def start(self):
+        self.want_start = False
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
@@ -188,83 +176,6 @@ class Plugin:
             return ""
         return next((l for l in reversed(lines) if l and " INFO " not in l), "")
 
-    # --- unchecked route watcher ------------------------------------------------------
-    # Uses AvNav's router object in this process (avnrouter.py AVNRouter.getCurrentLeg/setCurrentLeg): an internal
-    # interface, so every failure only adds a status warning and routing keeps working.
-
-    def watch(self):
-        try:
-            from avnav_worker import AVNWorker
-            router = AVNWorker.findHandlerByName("AVNRouter")
-            leg = router.getCurrentLeg()
-            with self.lock:
-                keys = self.route_keys()
-                try:
-                    self.registry.sync(keys)
-                except OSError as e:  # sync updates the list in memory before it saves, so still stop below
-                    self.api.error("cannot save the unchecked route list: %s", e)
-                cur = leg_route(leg.getJson()) if leg is not None else None
-                stop = cur is not None and self.registry.is_unchecked(*cur)
-            if stop:
-                def off(l, _):  # runs under the router's lock: keep a route the sailor switched to meanwhile
-                    return type(l)(route_off(l.getJson())) if l is not None and leg_route(l.getJson()) == cur else l
-                router.setCurrentLeg(changeFunction=off)
-                router.wakeUp()
-                self.api.log("stopped unchecked asw route %s", cur[0])
-                self.alarm = cur
-                try:
-                    self.api.startAlarm(ALARM, defaultCategory="critical", message=ALARM_TEXT)
-                except Exception as e:
-                    self.api.error("cannot start alarm: %s", e)
-            elif self.alarm and (cur is not None or (
-                    not os.path.exists(os.path.join(self.routes_dir, self.alarm[0] + ".gpx"))
-                    and self.alarm[1] not in keys.values())):
-                # a checked route is followed, or the stopped route was deleted (no file by its name or its points;
-                # the registry keeps entries of deleted files, so it cannot tell)
-                self.clear_alarm()
-            self.warn(WATCH_FAILED, False)
-        except Exception as e:
-            if WATCH_FAILED not in self.warnings:
-                self.api.error("cannot watch the active route: %s", e)
-            self.warn(WATCH_FAILED, True)
-
-    def route_keys(self):
-        """{route name: points key} for every readable .gpx in the routes dir; a damaged file is skipped."""
-        keys, cache = {}, {}
-        try:
-            files = [f for f in os.listdir(self.routes_dir) if f.endswith(".gpx")]
-        except OSError:
-            files = []
-        for f in files:
-            path = os.path.join(self.routes_dir, f)
-            try:
-                st = os.stat(path)
-                sig = (st.st_mtime_ns, st.st_size)
-                old = self.keys.get(path)
-                if old is None or old[0] != sig:
-                    with open(path, "rb") as fh:
-                        old = (sig, gpx_key(fh.read()))
-            except OSError:
-                continue
-            cache[path] = old
-            if old[1] is not None:
-                keys[f[:-4]] = old[1]
-        self.keys = cache
-        return keys
-
-    def clear_alarm(self):
-        self.alarm = None
-        try:
-            self.api.clearAlarm(ALARM)
-        except Exception as e:
-            self.api.error("cannot clear alarm: %s", e)
-
-    def warn(self, text, on):
-        if on != (text in self.warnings):
-            self.warnings = [w for w in self.warnings if w != text] + ([text] if on else [])
-            st = self.status
-            self.set(st["state"], st["detail"], st["downloadedMB"])
-
     # --- download -----------------------------------------------------------------
 
     def download(self):
@@ -278,9 +189,10 @@ class Plugin:
 
     def download_thread(self):
         try:
+            install.cleanup_stale(self.graph)
             machine = platform.machine()
             errors, warnings = install.preflight(self.dir, machine, install.mem_total(),
-                                                 shutil.disk_usage(self.dir).free)
+                                                 shutil.disk_usage(self.dir).free, os.path.exists(self.graph))
             self.warnings += [w for w in warnings if w not in self.warnings]
             if errors:
                 self.set("error", " ".join(errors))
@@ -299,32 +211,31 @@ class Plugin:
     def handle(self, url, handler, args):
         try:
             arg = lambda k: (args.get(k) or [None])[0] if args else None  # noqa: E731
-            data = json.loads(arg("data")) if arg("data") else None
             if url == "status":
                 return self.status
             if url == "download":
                 return self.download()
             if url == "route":
-                return self.route(data)
-            if url == "check":
-                return self.check(arg("name"))
-            if url == "unchecked":
-                return {"names": [e["name"] for e in self.registry.routes]}
+                return self.route(arg("data"))
+            if url == "save":
+                return self.save(arg("name"), arg("overwrite") == "1")
             if url == "options":
-                return self.options(data)
+                return self.options(arg("data"))
             return {"ok": False, "error": "Unknown request: %s" % url}
         except Exception as e:
             self.api.error("request %s failed: %s", url, e)
             return {"ok": False, "error": str(e)}
 
-    def route(self, d):
+    def route(self, data):
+        """Computes the route from d["from"] to d["to"] and keeps it as the pending route; save() writes it."""
         if self.status["state"] != "ready":
             return {"ok": False, "error": "asw is not ready: %s" % self.status["detail"]}
         try:
-            name, sb, canals, arctic = d["name"], d.get("shore_buffer", 0), d.get("canals", True), d.get("arctic", False)
-            points = [{"lat": float(p["lat"]), "lon": float(p["lon"]), "name": str(p.get("name") or "WP %d" % (i + 1))}
-                      for i, p in enumerate(d["points"])]
-            valid = safe_name(name) and len(points) >= 2 and isinstance(canals, bool) and isinstance(arctic, bool) \
+            d = json.loads(data)
+            sb, canals, arctic = d.get("shore_buffer", 0), d.get("canals", True), d.get("arctic", False)
+            points = [{"lat": float(d[k]["lat"]), "lon": float(d[k]["lon"]), "name": n}
+                      for k, n in (("from", "Start"), ("to", "Destination"))]
+            valid = isinstance(canals, bool) and isinstance(arctic, bool) \
                 and not isinstance(sb, bool) and 0 <= float(sb) <= 5 \
                 and all(-90 <= p["lat"] <= 90 and -180 <= p["lon"] <= 180 for p in points)
         except (KeyError, TypeError, ValueError, AttributeError):
@@ -354,42 +265,37 @@ class Plugin:
         except (OSError, ValueError):
             return {"ok": False, "error": "asw did not answer. Try again."}
         pts, nm, land = join_legs(points, legs)
-        out = unchecked_name(name)
         with self.lock:
+            self.pending = pts
+        return {"ok": True, "distance_nm": nm, "points": len(pts), "land": land,
+                "name": time.strftime("asw %Y-%m-%d %H:%M")}  # local time of the AvNav server
+
+    def save(self, name, overwrite):
+        if not safe_name(name):
+            return {"ok": False, "error": "Invalid route name."}
+        path = os.path.join(self.routes_dir, name + ".gpx")
+        with self.lock:
+            if self.pending is None:
+                return {"ok": False, "error": NO_ROUTE}
+            if os.path.exists(path) and not overwrite:
+                return {"ok": False, "exists": True}
             os.makedirs(self.routes_dir, exist_ok=True)
-            write_atomic(os.path.join(self.routes_dir, out + ".gpx"), route_gpx(out, pts))
-            self.registry.add(out, points_key(pts))
-        return {"ok": True, "name": out, "distance_nm": nm, "land": land, "points": len(pts)}
+            write_atomic(path, route_gpx(name, self.pending))
+        return {"ok": True, "name": name}
 
-    def check(self, name):
-        if not safe_name(name) or not (name.endswith(SUFFIX) or any(e["name"] == name for e in self.registry.routes)):
-            return {"ok": False, "error": "This is not an unchecked asw route."}
-        new = checked_name(name)
-        src, dst = (os.path.join(self.routes_dir, n + ".gpx") for n in (name, new))
-        with self.lock:
-            if not os.path.exists(src):
-                return {"ok": False, "error": "Route %s not found." % name}
-            if os.path.exists(dst):
-                return {"ok": False, "error": "A route named %s already exists. Rename or delete it first." % new}
-            with open(src, encoding="utf-8") as f:
-                text = f.read()
-            # keep the name inside the file equal to the file name
-            write_atomic(dst, text.replace("<name>%s</name>" % xml_escape(name), "<name>%s</name>" % xml_escape(new), 1))
-            os.unlink(src)
-            self.registry.remove(name)
-        if self.alarm:  # the stopped leg may carry another name (renamed); the watcher raises it again if needed
-            self.clear_alarm()
-        return {"ok": True, "name": new}
-
-    def options(self, d):
-        if d is None:
+    def options(self, data):
+        if not data:
             try:
                 with open(self.options_path) as f:
                     saved = json.load(f)
                 return {k: saved.get(k, v) for k, v in DEFAULT_OPTIONS.items()}
             except (OSError, ValueError, AttributeError):
                 return dict(DEFAULT_OPTIONS)
-        o = {k: d.get(k, v) for k, v in DEFAULT_OPTIONS.items()}
+        try:
+            d = json.loads(data)
+            o = {k: d.get(k, v) for k, v in DEFAULT_OPTIONS.items()}
+        except (ValueError, AttributeError):
+            return {"ok": False, "error": "Invalid options."}
         if not (isinstance(o["canals"], bool) and isinstance(o["arctic"], bool)
                 and isinstance(o["shore_buffer"], (int, float)) and not isinstance(o["shore_buffer"], bool)
                 and 0 <= o["shore_buffer"] <= 5):

@@ -19,11 +19,11 @@ def release_url(asw_version, asset):
     return "https://github.com/auto-sea-way/asw/releases/download/v%s/%s" % (asw_version, asset)
 
 
-def preflight(data_dir, machine, mem_total, free):
+def preflight(data_dir, machine, mem_total, free, graph_present=False):
     errors, warnings = [], []
     if not binary_asset(machine):
         errors.append("This system is not supported (%s). asw needs 64-bit Linux on arm64 or x86_64." % machine)
-    if free < NEED_FREE_BYTES:
+    if not graph_present and free < NEED_FREE_BYTES:  # the binary alone is a few MB
         errors.append("Not enough free space: about %.1f GB needed in %s." % (NEED_FREE_BYTES / 1e9, data_dir))
     if 0 < mem_total < WARN_RAM_BYTES:  # 0 = unknown
         warnings.append("Less than 2 GB of RAM: routing will be slow.")

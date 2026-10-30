@@ -23,7 +23,7 @@ from aswplugin import install  # noqa: E402
 from aswplugin.route import DEFAULT_NAME, FORBIDDEN, LegError, call_legs, end_points, join_legs, route_gpx, safe_name  # noqa: E402
 
 GRAPH_MB = 1430
-MISSING = "Map data is not installed. Press Download to get it: about 540 MB, use Wi-Fi."
+MISSING = "Map data is not installed. Press Download map data to get it: about 540 MB, use Wi-Fi."
 AVNAV_STATUS = {"missing": "INACTIVE", "downloading": "STARTED", "starting": "STARTED", "ready": "NMEA", "error": "ERROR"}
 DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True, "arctic": False}
 NO_ROUTE = "No route to save. Make a route first."

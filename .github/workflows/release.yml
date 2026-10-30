@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Tag must match plugin.json version
+        run: test "${GITHUB_REF_NAME#v}" = "$(python3 -c 'import json;print(json.load(open("asw/plugin.json"))["version"])')"
       - run: python3 tests/selfcheck.py
       - run: ./build.sh
       - uses: softprops/action-gh-release@v2.0.8

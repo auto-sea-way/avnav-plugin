@@ -1,5 +1,6 @@
 """Join asw /route legs into one point list and write it as GPX."""
 import hashlib
+import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape, quoteattr
 
 SUFFIX = " (asw, unchecked)"
@@ -63,3 +64,37 @@ def checked_name(name):
 def points_key(points):
     s = ";".join("%.6f,%.6f" % (p["lat"], p["lon"]) for p in points)
     return hashlib.sha1(s.encode()).hexdigest()
+
+
+def gpx_key(text):
+    """points_key of the first route in a GPX text, None if the text is not a readable route."""
+    try:
+        rte = next(e for e in ET.fromstring(text).iter() if e.tag.rsplit("}", 1)[-1] == "rte")
+        return points_key([{"lat": float(e.get("lat")), "lon": float(e.get("lon"))}
+                           for e in rte if e.tag.rsplit("}", 1)[-1] == "rtept"])
+    except (ET.ParseError, StopIteration, TypeError, ValueError):
+        return None
+
+
+def leg_route(leg):
+    """(route name, points key) when the AvNav leg dict follows a route, else None (same rules as AvNav's
+    AVNRoutingLeg.getRouteName(activeOnly=True): active, has from and to, no anchor watch)."""
+    route = leg.get("currentRoute")
+    if not (leg.get("active") and leg.get("from") is not None and leg.get("to") is not None
+            and leg.get("anchorDistance") is None
+            and isinstance(route, dict)):
+        return None
+    try:
+        key = points_key([{"lat": float(p["lat"]), "lon": float(p["lon"])} for p in route.get("points") or []])
+    except (KeyError, TypeError, ValueError):
+        key = None  # still matched by name
+    return str(route.get("name") or ""), key
+
+
+def route_off(leg):
+    """The leg after AvNav's own 'stop route' (viewer routedata.ts routeOff): inactive, no route."""
+    off = {k: v for k, v in leg.items() if k not in ("currentRoute", "name")}
+    off["active"] = False
+    if isinstance(off.get("to"), dict):
+        off["to"] = {k: v for k, v in off["to"].items() if k != "routeName"}
+    return off

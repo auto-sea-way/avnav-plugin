@@ -21,7 +21,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # AvNav loads this file by path, so aswplugin is not importable otherwise
 
 from aswplugin import install  # noqa: E402
-from aswplugin.route import SUFFIX, LegError, call_legs, checked_name, join_legs, points_key, route_gpx, unchecked_name  # noqa: E402
+from aswplugin.route import SUFFIX, LegError, call_legs, checked_name, gpx_key, join_legs, leg_route, points_key, \
+    route_gpx, route_off, unchecked_name  # noqa: E402
 from aswplugin.unchecked import Registry  # noqa: E402
 
 GRAPH_MB = 1430
@@ -29,6 +30,9 @@ MISSING = "Map data is not installed. Press Download to get it: about 540 MB, us
 DAMAGED = "The list of unchecked asw routes was damaged and reset. Check every asw route before you use it."
 AVNAV_STATUS = {"missing": "INACTIVE", "downloading": "STARTED", "starting": "STARTED", "ready": "NMEA", "error": "ERROR"}
 DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True, "arctic": False}
+WATCH_FAILED = "Cannot watch the active route on this AvNav version."
+ALARM = "asw-unchecked"
+ALARM_TEXT = "This asw route is not checked yet. Check it and press Mark as checked in the Auto route dialog."
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -72,6 +76,8 @@ class Plugin:
         self.child = self.port = self.key = self.dl = None
         self.started_at = self.restart_at = 0
         self.want_start = False
+        self.keys = {}  # route file path -> ((mtime, size), points key)
+        self.alarm = None  # name of the unchecked route the watcher last stopped while its alarm runs
         self.status = {"state": "starting", "detail": "Starting", "warnings": list(self.warnings), "downloadedMB": 0}
         api.registerRestart(self.stop)
 
@@ -94,8 +100,12 @@ class Plugin:
             self.set("starting", "Starting asw")
         else:
             self.set("missing", MISSING)
+        n = 0
         while not stopping.wait(1):
             self.tick()
+            n += 1
+            if n % 2:
+                self.watch()
 
     def stop(self):
         self.stopping.set()
@@ -173,6 +183,75 @@ class Plugin:
         except OSError:
             return ""
         return next((l for l in reversed(lines) if l and " INFO " not in l), "")
+
+    # --- unchecked route watcher ------------------------------------------------------
+    # Uses AvNav's router object in this process (avnrouter.py AVNRouter.getCurrentLeg/setCurrentLeg): an internal
+    # interface, so every failure only adds a status warning and routing keeps working.
+
+    def watch(self):
+        try:
+            from avnav_worker import AVNWorker
+            router = AVNWorker.findHandlerByName("AVNRouter")
+            leg = router.getCurrentLeg()
+            with self.lock:
+                try:
+                    self.registry.sync(self.route_keys())
+                except OSError as e:  # sync updates the list in memory before it saves, so still stop below
+                    self.api.error("cannot save the unchecked route list: %s", e)
+                cur = leg_route(leg.getJson()) if leg is not None else None
+                stop = cur is not None and self.registry.is_unchecked(*cur)
+            if stop:
+                def off(l, _):  # runs under the router's lock: keep a route the sailor switched to meanwhile
+                    return type(l)(route_off(l.getJson())) if l is not None and leg_route(l.getJson()) == cur else l
+                router.setCurrentLeg(changeFunction=off)
+                router.wakeUp()
+                self.api.log("stopped unchecked asw route %s", cur[0])
+                self.api.startAlarm(ALARM, defaultCategory="critical", message=ALARM_TEXT)
+                self.alarm = cur[0]
+            elif cur is not None and self.alarm:
+                self.clear_alarm()
+            self.warn(WATCH_FAILED, False)
+        except Exception as e:
+            if WATCH_FAILED not in self.warnings:
+                self.api.error("cannot watch the active route: %s", e)
+            self.warn(WATCH_FAILED, True)
+
+    def route_keys(self):
+        """{route name: points key} for every readable .gpx in the routes dir; a damaged file is skipped."""
+        keys, cache = {}, {}
+        try:
+            files = [f for f in os.listdir(self.routes_dir) if f.endswith(".gpx")]
+        except OSError:
+            files = []
+        for f in files:
+            path = os.path.join(self.routes_dir, f)
+            try:
+                st = os.stat(path)
+                sig = (st.st_mtime_ns, st.st_size)
+                old = self.keys.get(path)
+                if old is None or old[0] != sig:
+                    with open(path, "rb") as fh:
+                        old = (sig, gpx_key(fh.read()))
+            except OSError:
+                continue
+            cache[path] = old
+            if old[1] is not None:
+                keys[f[:-4]] = old[1]
+        self.keys = cache
+        return keys
+
+    def clear_alarm(self):
+        self.alarm = None
+        try:
+            self.api.clearAlarm(ALARM)
+        except Exception as e:
+            self.api.error("cannot clear alarm: %s", e)
+
+    def warn(self, text, on):
+        if on != (text in self.warnings):
+            self.warnings = [w for w in self.warnings if w != text] + ([text] if on else [])
+            st = self.status
+            self.set(st["state"], st["detail"], st["downloadedMB"])
 
     # --- download -----------------------------------------------------------------
 
@@ -286,6 +365,8 @@ class Plugin:
             write_atomic(dst, text.replace("<name>%s</name>" % xml_escape(name), "<name>%s</name>" % xml_escape(new), 1))
             os.unlink(src)
             self.registry.remove(name)
+        if self.alarm == name:
+            self.clear_alarm()
         return {"ok": True, "name": new}
 
     def options(self, d):

@@ -77,7 +77,7 @@ class Plugin:
         self.started_at = self.restart_at = 0
         self.want_start = False
         self.keys = {}  # route file path -> ((mtime, size), points key)
-        self.alarm = None  # name of the unchecked route the watcher last stopped while its alarm runs
+        self.alarm = None  # (name, points key) of the unchecked route the watcher last stopped while its alarm runs
         self.status = {"state": "starting", "detail": "Starting", "warnings": list(self.warnings), "downloadedMB": 0}
         api.registerRestart(self.stop)
 
@@ -100,12 +100,16 @@ class Plugin:
             self.set("starting", "Starting asw")
         else:
             self.set("missing", MISSING)
-        n = 0
+        failed = None
         while not stopping.wait(1):
-            self.tick()
-            n += 1
-            if n % 2:
-                self.watch()
+            try:  # the watcher below must keep running whatever tick does
+                self.tick()
+                failed = None
+            except Exception as e:
+                if str(e) != failed:
+                    self.api.error("asw control failed: %s", e)
+                failed = str(e)
+            self.watch()
 
     def stop(self):
         self.stopping.set()
@@ -194,8 +198,9 @@ class Plugin:
             router = AVNWorker.findHandlerByName("AVNRouter")
             leg = router.getCurrentLeg()
             with self.lock:
+                keys = self.route_keys()
                 try:
-                    self.registry.sync(self.route_keys())
+                    self.registry.sync(keys)
                 except OSError as e:  # sync updates the list in memory before it saves, so still stop below
                     self.api.error("cannot save the unchecked route list: %s", e)
                 cur = leg_route(leg.getJson()) if leg is not None else None
@@ -206,9 +211,16 @@ class Plugin:
                 router.setCurrentLeg(changeFunction=off)
                 router.wakeUp()
                 self.api.log("stopped unchecked asw route %s", cur[0])
-                self.api.startAlarm(ALARM, defaultCategory="critical", message=ALARM_TEXT)
-                self.alarm = cur[0]
-            elif cur is not None and self.alarm:
+                self.alarm = cur
+                try:
+                    self.api.startAlarm(ALARM, defaultCategory="critical", message=ALARM_TEXT)
+                except Exception as e:
+                    self.api.error("cannot start alarm: %s", e)
+            elif self.alarm and (cur is not None or (
+                    not os.path.exists(os.path.join(self.routes_dir, self.alarm[0] + ".gpx"))
+                    and self.alarm[1] not in keys.values())):
+                # a checked route is followed, or the stopped route was deleted (no file by its name or its points;
+                # the registry keeps entries of deleted files, so it cannot tell)
                 self.clear_alarm()
             self.warn(WATCH_FAILED, False)
         except Exception as e:
@@ -365,7 +377,7 @@ class Plugin:
             write_atomic(dst, text.replace("<name>%s</name>" % xml_escape(name), "<name>%s</name>" % xml_escape(new), 1))
             os.unlink(src)
             self.registry.remove(name)
-        if self.alarm == name:
+        if self.alarm:  # the stopped leg may carry another name (renamed); the watcher raises it again if needed
             self.clear_alarm()
         return {"ok": True, "name": new}
 

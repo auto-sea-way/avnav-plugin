@@ -47,7 +47,7 @@ U = "A (asw, unchecked)"
 
 def test_registry_follows_rename():
     r.add(U, "k1"); r.sync({"Renamed": "k1"})
-    assert r.is_unchecked("Renamed", "k1") and not Registry(path).is_unchecked(U, "zz")
+    assert r.is_unchecked("Renamed", "k1") and not Registry(path).is_unchecked("Other", "zz")
     r.remove("Renamed")
 
 def test_registry_follows_edit():

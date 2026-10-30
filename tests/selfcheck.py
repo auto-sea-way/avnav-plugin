@@ -59,7 +59,7 @@ def test_registry_gone_entry_kept():
     assert r.is_unchecked(U, "k2")
 
 def test_registry_remove_and_persist():
-    r.remove(U); assert not Registry(path).is_unchecked(U, "k2")
+    r.remove(U); assert Registry(path).routes == [] and not Registry(path).is_unchecked("Z", "k2")
     assert Registry(os.path.join(tempfile.mkdtemp(), "none.json")).routes == []
 
 def test_registry_damaged_file():

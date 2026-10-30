@@ -1,6 +1,7 @@
-import os, sys, xml.etree.ElementTree as ET
+import os, sys, tempfile, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
 from aswplugin.route import join_legs, route_gpx, unchecked_name, checked_name, points_key
+from aswplugin.unchecked import Registry
 
 wps = [{"lat": 36.0, "lon": 28.0, "name": n} for n in "ABC"]
 wps[1].update(lat=36.1, lon=28.1); wps[2].update(lat=36.2, lon=28.2)
@@ -39,6 +40,27 @@ def test_gpx_roundtrip():
     assert len(rtes) == 1 and rtes[0].find("g:name", ns).text == "Trip <1>"
     got = [(float(e.get("lat")), float(e.get("lon")), e.find("g:name", ns).text) for e in rtes[0].findall("g:rtept", ns)]
     assert got == [(36.0, 28.0, "A & <B>"), (36.5, 28.5, "asw 1")]
+
+path = os.path.join(tempfile.mkdtemp(), "unchecked.json")
+r = Registry(path)
+U = "A (asw, unchecked)"
+
+def test_registry_follows_rename():
+    r.add(U, "k1"); r.sync({"Renamed": "k1"})
+    assert r.is_unchecked("Renamed", "k1") and not Registry(path).is_unchecked(U, "zz")
+    r.remove("Renamed")
+
+def test_registry_follows_edit():
+    r.add(U, "k1"); r.sync({U: "k2"})
+    assert r.is_unchecked(U, "k2") and Registry(path).is_unchecked("x", "k2")
+
+def test_registry_gone_entry_kept():
+    r.sync({"Other": "k9"})
+    assert r.is_unchecked(U, "k2")
+
+def test_registry_remove_and_persist():
+    r.remove(U); assert not Registry(path).is_unchecked(U, "k2")
+    assert Registry(os.path.join(tempfile.mkdtemp(), "none.json")).routes == []
 
 for k, f in list(globals().items()):
     if k.startswith("test_"): f()

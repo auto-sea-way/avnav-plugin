@@ -1,0 +1,16 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/selfcheck.py
+      - run: ./build.sh
+      - uses: softprops/action-gh-release@v2.0.8
+        with:
+          files: dist/avnav-asw-*.zip

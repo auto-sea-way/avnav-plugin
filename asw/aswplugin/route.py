@@ -5,6 +5,21 @@ from xml.sax.saxutils import escape, quoteattr
 SUFFIX = " (asw, unchecked)"
 
 
+class LegError(Exception):
+    pass
+
+
+def call_legs(get, waypoints):
+    """get(a, b) -> (http status, json body) for one asw /route call."""
+    legs = []
+    for a, b in zip(waypoints, waypoints[1:]):
+        status, body = get(a, b)
+        if status != 200:
+            raise LegError("%s → %s: %s" % (a["name"], b["name"], body.get("error") or "HTTP %d" % status))
+        legs.append(body)
+    return legs
+
+
 def join_legs(waypoints, legs):
     """legs[i] is the asw /route JSON for waypoints[i] -> waypoints[i+1]."""
     points = [dict(waypoints[0])]

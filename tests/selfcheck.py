@@ -1,6 +1,6 @@
 import os, sys, tempfile, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
-from aswplugin.route import join_legs, route_gpx, unchecked_name, checked_name, points_key
+from aswplugin.route import join_legs, route_gpx, unchecked_name, checked_name, points_key, call_legs, LegError
 from aswplugin.unchecked import Registry
 from aswplugin.install import binary_asset, release_url, preflight, cleanup_stale, download_binary, mem_total
 
@@ -23,6 +23,16 @@ def test_land_waypoints_named():
     # B on land seen from both legs: listed once
     a = dict(ab, land_legs=[1]); b = dict(bc, land_legs=[0])
     assert join_legs(wps, [a, b])[2] == ["B"]
+
+def test_leg_without_route_reported():
+    get = lambda a, b: (404, {"error": "no route"}) if a["name"] == "B" else (200, ab)
+    try:
+        call_legs(get, wps); assert False
+    except LegError as e:
+        assert str(e) == "B → C: no route"
+    seen = []
+    assert call_legs(lambda a, b: seen.append((a["name"], b["name"])) or (200, ab), wps) == [ab, ab]
+    assert seen == [("A", "B"), ("B", "C")]
 
 def test_names():
     assert unchecked_name("Bodrum") == "Bodrum (asw, unchecked)"

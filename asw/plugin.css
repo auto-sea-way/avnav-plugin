@@ -1,0 +1,10 @@
+/* the button's class is <plugin name>-aswRouteHere, and the plugin name depends on how it was installed */
+.button[class*="-aswRouteHere"] .icon {
+    background-image: url(icon.svg);
+}
+.aswResult {
+    max-width: 30em;
+}
+.aswResult .aswWarning {
+    font-weight: bold;
+}

@@ -62,6 +62,17 @@ def test_registry_remove_and_persist():
     r.remove(U); assert not Registry(path).is_unchecked(U, "k2")
     assert Registry(os.path.join(tempfile.mkdtemp(), "none.json")).routes == []
 
+def test_registry_damaged_file():
+    for bad in ("", "{", "[]", '{"routes": [1]}'):
+        p = os.path.join(tempfile.mkdtemp(), "u.json")
+        open(p, "w").write(bad)
+        d = Registry(p)
+        assert d.routes == [] and d.damaged and os.path.exists(p + ".bad") and not os.path.exists(p)
+    assert not Registry(p + ".none").damaged
+
+def test_hint_name_always_unchecked():
+    assert Registry(os.path.join(tempfile.mkdtemp(), "n.json")).is_unchecked("X (asw, unchecked)", "unknown")
+
 for k, f in list(globals().items()):
     if k.startswith("test_"): f()
 print("ok")

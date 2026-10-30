@@ -1,17 +1,25 @@
 """Remembers which generated routes the sailor has not checked yet."""
+import contextlib
 import json
 import os
 import tempfile
+
+from .route import unchecked_name
 
 
 class Registry:
     def __init__(self, path):
         self.path = path
+        self.routes, self.damaged = [], False
         try:
             with open(path) as f:
-                self.routes = json.load(f)["routes"]
+                data = json.load(f)
+            self.routes = [{"name": e["name"], "key": e["key"]} for e in data["routes"]]
         except FileNotFoundError:
-            self.routes = []
+            pass
+        except (ValueError, KeyError, TypeError):
+            self.routes, self.damaged = [], True
+            os.replace(path, path + ".bad")
 
     def _save(self):
         d = os.path.dirname(os.path.abspath(self.path))
@@ -19,9 +27,12 @@ class Registry:
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump({"routes": self.routes}, f)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, self.path)
         except BaseException:
-            os.unlink(tmp)
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
             raise
 
     def add(self, name, key):
@@ -34,6 +45,8 @@ class Registry:
         self._save()
 
     def is_unchecked(self, name, key):
+        if name.endswith(unchecked_name("")):
+            return True
         return any(e["name"] == name or e["key"] == key for e in self.routes)
 
     def sync(self, routes):

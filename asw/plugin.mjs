@@ -46,7 +46,9 @@ export default (api) => {
 
     const notReady = (s, ctx) => {
         if (s.state !== "missing" && s.state !== "error") return say(s.detail, ctx);
-        return say(s.detail, ctx, [
+        // The status text tells the way to this dialog; inside it, say only the size.
+        const text = s.state === "missing" ? "Map data is not installed. The download is about 540 MB, use Wi-Fi." : s.detail;
+        return say(text, ctx, [
             {name: "cancel", shortText: "Cancel"},
             {
                 name: "download", shortText: s.state === "missing" ? "Download map data" : "Try again",

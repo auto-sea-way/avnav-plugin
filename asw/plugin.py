@@ -29,7 +29,7 @@ from aswplugin.route import DEFAULT_NAME, FORBIDDEN, LegError, call_legs, end_po
 GRAPH_MB = 1430
 MISSING = "Map data is not installed. On the chart page press To here, then Download map data: about 540 MB, use Wi-Fi."
 AVNAV_STATUS = {"missing": "INACTIVE", "downloading": "STARTED", "starting": "STARTED", "ready": "NMEA", "error": "ERROR"}
-DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True, "arctic": False}
+DEFAULT_OPTIONS = {"shore_buffer": 0.0, "canals": True}
 NO_ROUTE = "No route to save. Make a route first."
 REPLACED = "A newer route was made, maybe on another device. Make this route again."
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -248,16 +248,16 @@ class Plugin:
             return {"ok": False, "error": "asw is not ready: %s" % self.status["detail"]}
         try:
             d = json.loads(data)
-            sb, canals, arctic = d.get("shore_buffer", 0), d.get("canals", True), d.get("arctic", False)
+            sb, canals = d.get("shore_buffer", 0), d.get("canals", True)
             points = end_points(d["from"], d["to"])
-            valid = isinstance(canals, bool) and isinstance(arctic, bool) \
+            valid = isinstance(canals, bool) \
                 and not isinstance(sb, bool) and 0 <= float(sb) <= 5 \
                 and all(-90 <= p["lat"] <= 90 and -180 <= p["lon"] <= 180 for p in points)
         except (KeyError, TypeError, ValueError, AttributeError):
             valid = False
         if not valid:
             return {"ok": False, "error": "Invalid route request."}
-        query = {"shore_buffer": float(sb), "canals": str(canals).lower(), "arctic": str(arctic).lower()}
+        query = {"shore_buffer": float(sb), "canals": str(canals).lower()}
         port, key = self.port, self.key
 
         def get(a, b):
@@ -317,7 +317,7 @@ class Plugin:
             o = {k: d.get(k, v) for k, v in DEFAULT_OPTIONS.items()}
         except (ValueError, AttributeError):
             return {"ok": False, "error": "Invalid options."}
-        if not (isinstance(o["canals"], bool) and isinstance(o["arctic"], bool)
+        if not (isinstance(o["canals"], bool)
                 and isinstance(o["shore_buffer"], (int, float)) and not isinstance(o["shore_buffer"], bool)
                 and 0 <= o["shore_buffer"] <= 5):
             return {"ok": False, "error": "Invalid options."}

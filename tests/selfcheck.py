@@ -1,6 +1,6 @@
 import os, sys, tempfile, time, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
-from aswplugin.route import join_legs, route_gpx, call_legs, LegError, safe_name, end_points, DEFAULT_NAME
+from aswplugin.route import join_legs, length_nm, route_gpx, call_legs, LegError, safe_name, end_points, DEFAULT_NAME
 from aswplugin.install import binary_asset, release_url, preflight, check_system, download_stopped, cleanup_stale, download_binary, mem_total
 
 wps = [{"lat": 36.0, "lon": 28.0, "name": n} for n in "ABC"]
@@ -14,7 +14,11 @@ def test_join_two_legs():
     pts, nm, land = join_legs(wps, [ab, bc])
     assert [p["name"] for p in pts] == ["A", "asw 1", "B", "asw 2", "asw 3", "C"]
     assert pts[1] == {"lat": 36.05, "lon": 28.05, "name": "asw 1"}
-    assert nm == round(ab["distance_nm"] + bc["distance_nm"], 1) and land == []
+    assert nm == round(length_nm(pts), 1) == 15.4 and land == []  # the points, not the legs' distance_nm (13.55)
+
+def test_length_like_avnav():  # AvNav: geodesy LatLonSpherical, R 6371 km, 1852 m per nm
+    assert round(length_nm([{"lat": 0, "lon": 0}, {"lat": 1, "lon": 0}]), 4) == 60.0405
+    assert length_nm([{"lat": 36, "lon": 28}]) == 0
 
 def test_land_waypoints_named():
     a = dict(ab, land_legs=[0]); b = dict(bc, land_legs=[2])
@@ -31,7 +35,7 @@ def test_one_leg():
     assert ends[1] == {"lat": 36.2, "lon": 28.2, "name": "Destination"}
     pts, nm, land = join_legs(ends, [ad])
     assert [p["name"] for p in pts] == ["Start", "asw 1", "asw 2", "Destination"]
-    assert nm == 13.6 and land == []
+    assert nm == 15.4 and land == []
     assert join_legs(ends, [dict(ad, land_legs=[0])])[2] == ["Start"]
     assert join_legs(ends, [dict(ad, land_legs=[2])])[2] == ["Destination"]
     assert join_legs(ends, [dict(ad, land_legs=[2, 0])])[2] == ["Start", "Destination"]

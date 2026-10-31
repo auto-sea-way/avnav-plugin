@@ -1,4 +1,5 @@
 """Join asw /route legs into one point list and write it as GPX."""
+from math import asin, cos, radians, sin, sqrt
 from xml.sax.saxutils import escape, quoteattr
 
 
@@ -35,10 +36,9 @@ def end_points(start, dest):
 def join_legs(waypoints, legs):
     """legs[i] is the asw /route JSON for waypoints[i] -> waypoints[i+1]."""
     points = [dict(waypoints[0])]
-    nm, land, added = 0.0, [], 0
+    land, added = [], 0
     for i, leg in enumerate(legs):
         coords = leg["geometry"]["coordinates"]
-        nm += leg["distance_nm"]
         for j in leg.get("land_legs", []):
             for hit, wp in ((j == 0, waypoints[i]), (j == len(coords) - 2, waypoints[i + 1])):
                 if hit and wp["name"] not in land:
@@ -48,7 +48,17 @@ def join_legs(waypoints, legs):
             points.append({"lat": lat, "lon": lon, "name": "asw %d" % added})
         points.append(dict(waypoints[i + 1]))
     land.sort(key=lambda n: [w["name"] for w in waypoints].index(n))
-    return points, round(nm, 1), land
+    return points, round(length_nm(points), 1), land
+
+
+def length_nm(points):
+    """Great-circle length as AvNav shows it (geodesy LatLonSpherical, R 6371 km), so both say the same number.
+    asw's distance_nm leaves out a piece over land at the ends."""
+    def leg(a, b):
+        p1, p2 = radians(a["lat"]), radians(b["lat"])
+        h = sin((p2 - p1) / 2) ** 2 + cos(p1) * cos(p2) * sin(radians(b["lon"] - a["lon"]) / 2) ** 2
+        return 2 * 6371000 * asin(sqrt(h)) / 1852
+    return sum(leg(a, b) for a, b in zip(points, points[1:]))
 
 
 def route_gpx(name, points):

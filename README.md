@@ -34,7 +34,7 @@ The files are stored in the `asw` folder of the AvNav data directory, so they st
 3. Read the result: the distance in nautical miles, the options, a note if the start or the destination is on land, and the warning.
 4. To change the distance from shore (0 to 5 nm) or to avoid canals, press "Options" and then "Make route". The plugin remembers the options for the next route.
 5. Change the route name if you want, and press "Save route". If a route with this name exists, the plugin asks before it replaces it.
-6. Open the Routes page, check the route on the chart, and use it like any other route.
+6. Check every point of the route on the chart, and use it like any other route. If your AvNav has the plugin function `editRoute`, the route opens in the route editor on the chart after saving. Without it, the plugin shows where the route is saved, and you open it from the Routes page.
 
 ![Chart page](docs/img/chart-page.png)
 

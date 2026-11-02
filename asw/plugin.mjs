@@ -144,7 +144,10 @@ export default (api) => {
                         }
                         if (!s.ok) return say(s.error, ev);
                         await close();
-                        api.showToast(`The route "${s.name}" is saved. Open it on the Routes page.`, 5000);
+                        const saved = `The route "${s.name}" is saved. Open it on the Routes page.`;
+                        if (!api.editRoute) return api.showToast(saved, 5000); // AvNav without editRoute
+                        // the route editor on the chart; ctx is the To here click, a dialog button event has no page history
+                        api.editRoute(s.name, ctx).catch((e) => api.showToast(`${saved} ${e.message}`, 8000));
                     };
                     save(false);
                 }

@@ -144,7 +144,7 @@ def test_options_in_plugin_parameters():
     assert p.options('{"shore_buffer": 0.5, "canals": false}') == {"shore_buffer": 0.5, "canals": False}
     assert api.values == {"shore_buffer": "0.5", "canals": "False"}
     assert p.options(None) == {"shore_buffer": 0.5, "canals": False}
-    api.values.update(shore_buffer="many", canals="true")  # "true" comes from the AvNav dialog
+    api.values.update(shore_buffer="many", canals="true")  # a bad number gives the default, and the case does not matter
     assert p.options(None) == {"shore_buffer": 0.0, "canals": True}
     assert p.options('{"shore_buffer": 6}')["ok"] is False and api.values["shore_buffer"] == "many"
 

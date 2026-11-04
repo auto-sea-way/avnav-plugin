@@ -307,7 +307,7 @@ class Plugin:
         return {"ok": True, "name": name}
 
     def options(self, data):
-        if not data:  # AvNav keeps parameters as strings: "True" from here, "true" from its own edit dialog
+        if not data:  # AvNav keeps parameters as strings, for example "True"
             try:
                 shore_buffer = float(self.api.getConfigValue("shore_buffer", DEFAULT_OPTIONS["shore_buffer"]))
             except (TypeError, ValueError):

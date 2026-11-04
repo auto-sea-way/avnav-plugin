@@ -12,7 +12,8 @@ The idea comes from [avnav#435](https://github.com/wellenvogel/avnav/issues/435)
 
 ## Requirements
 
-- AvNav 20261029 daily build or the coming 202610xx release.
+- AvNav release 20261102 or newer. The 20261029 daily build works too.
+- To open the saved route in the route editor, AvNav must be newer than release 20261102. An older AvNav shows a message after saving, and you open the route on the Routes page.
 - Linux, arm64 or x86_64. For a Raspberry Pi this means Pi 4 or 5 with a 64-bit OS.
 - 2 GB RAM or more. With less RAM the plugin works but routing is slow.
 - About 2.1 GB free disk space. The download is about 540 MB and it unpacks to about 1.43 GB.
@@ -32,7 +33,7 @@ The files are stored in the `asw` folder of the AvNav data directory, so they st
 1. Move the chart so that the crosshair is on the destination.
 2. Press "To here". The boat position from GPS is the start. Without a GPS fix the plugin cannot make a route.
 3. Read the result: the distance in nautical miles, the options, a note if the start or the destination is on land, and the warning.
-4. To change the distance from shore (0 to 5 nm) or to avoid canals, press "Options" and then "Make route". The plugin remembers the options for the next route.
+4. To change the distance from shore (0 to 5 nm) or to avoid canals, press "Options" and then "Make route". The plugin remembers the options for the next route. You can also change them in the settings of the plugin on the AvNav server page.
 5. Change the route name if you want, and press "Save route". If a route with this name exists, the plugin asks before it replaces it.
 6. Check every point of the route on the chart, and use it like any other route. If your AvNav has the plugin function `editRoute`, the route opens in the route editor on the chart after saving. Without it, the plugin shows where the route is saved, and you open it from the Routes page.
 

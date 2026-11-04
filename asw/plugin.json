@@ -1,1 +1,9 @@
-{"version": "0.1.0", "description": "Auto route around land with auto-sea-way", "aswVersion": "0.11.0"}
+{
+  "version": "0.1.0",
+  "description": "Auto route around land with auto-sea-way",
+  "aswVersion": "0.11.0",
+  "editableParameters": [
+    {"name": "shore_buffer", "type": "FLOAT", "default": 0, "rangeOrList": [0, 5], "description": "Distance from shore in nautical miles"},
+    {"name": "canals", "type": "BOOLEAN", "default": true, "description": "Allow canals"}
+  ]
+}

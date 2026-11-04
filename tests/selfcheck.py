@@ -1,6 +1,7 @@
 import os, sys, tempfile, time, xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "asw"))
 from aswplugin.route import join_legs, length_nm, route_gpx, call_legs, LegError, safe_name, end_points, DEFAULT_NAME
+import plugin
 from aswplugin.install import binary_asset, release_url, preflight, check_system, download_stopped, cleanup_stale, download_binary, mem_total
 
 wps = [{"lat": 36.0, "lon": 28.0, "name": n} for n in "ABC"]
@@ -126,6 +127,47 @@ def test_download_binary():
     open(src, "w").write("#!/bin/sh\necho asw 0.0.0\n")
     download_binary("file://" + src, dest)
     assert os.access(dest, os.X_OK) and not os.path.exists(dest + ".part")
+
+class FakeApi:  # stores values as strings, like AvNav
+    def __init__(self, d):
+        self.d, self.values = d, {}
+    def getDataDir(self): return self.d
+    def registerRestart(self, stop): pass
+    def getConfigValue(self, key, default=None): return self.values.get(key, default)
+    def saveConfigValues(self, values): self.values.update({k: str(v) for k, v in values.items()})
+    def setStatus(self, *a): pass
+
+def test_options_in_plugin_parameters():
+    api = FakeApi(tempfile.mkdtemp())
+    p = plugin.Plugin(api)
+    assert p.options(None) == {"shore_buffer": 0.0, "canals": True}
+    assert p.options('{"shore_buffer": 0.5, "canals": false}') == {"shore_buffer": 0.5, "canals": False}
+    assert api.values == {"shore_buffer": "0.5", "canals": "False"}
+    assert p.options(None) == {"shore_buffer": 0.5, "canals": False}
+    api.values.update(shore_buffer="many", canals="true")  # "true" comes from the AvNav dialog
+    assert p.options(None) == {"shore_buffer": 0.0, "canals": True}
+    assert p.options('{"shore_buffer": 6}')["ok"] is False and api.values["shore_buffer"] == "many"
+
+def test_start_uses_safespawn_when_avnav_has_it():
+    class Child: pass
+    calls = []
+    api = FakeApi(tempfile.mkdtemp())
+    p = plugin.Plugin(api)
+    popen = plugin.subprocess.Popen
+    plugin.subprocess.Popen = lambda cmd, **kw: calls.append(("popen", kw)) or Child()
+    def stub(cmd, **kw): raise NotImplemented()  # like the stub in the AvNav 20261029 API: a TypeError
+    try:
+        p.start()  # older AvNav: no safeSpawn
+        api.safeSpawn = stub
+        p.start()
+        api.safeSpawn = lambda cmd, **kw: calls.append(("safe", kw)) or Child()
+        p.start()
+    finally:
+        plugin.subprocess.Popen = popen
+    assert [c[0] for c in calls] == ["popen", "popen", "safe"]
+    assert "preexec_fn" in calls[0][1] and "kill_signal" not in calls[0][1]
+    assert calls[2][1]["kill_signal"] == plugin.signal.SIGTERM and "preexec_fn" not in calls[2][1]
+    assert all(c[1]["env"]["ASW_API_KEY"] for c in calls) and calls[2][1]["env"]["ASW_API_KEY"] == p.key
 
 for k, f in list(globals().items()):
     if k.startswith("test_"): f()

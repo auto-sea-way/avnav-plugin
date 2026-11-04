@@ -63,7 +63,6 @@ class Plugin:
         self.bin = os.path.join(self.dir, "asw")
         self.graph = os.path.join(self.dir, "asw.graph")
         self.log_path = os.path.join(self.dir, "asw.log")
-        self.options_path = os.path.join(self.dir, "options.json")
         self.routes_dir = os.path.join(api.getDataDir(), "routes")
         with open(os.path.join(HERE, "plugin.json")) as f:
             self.asw_version = json.load(f)["aswVersion"]
@@ -167,9 +166,12 @@ class Plugin:
                "--graph-url", install.release_url(self.asw_version, "asw.graph.zst")]
         try:
             with open(self.log_path, "wb") as log:
-                child = subprocess.Popen(cmd, env=dict(os.environ, ASW_API_KEY=key),  # env keeps the key out of ps
-                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log,
-                                         preexec_fn=die_with_parent if PRCTL else None)
+                io = dict(env=dict(os.environ, ASW_API_KEY=key),  # env keeps the key out of ps
+                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
+                try:
+                    child = self.api.safeSpawn(cmd, kill_signal=signal.SIGTERM, **io)
+                except (AttributeError, TypeError):  # before AvNav 20261102: not there, or a stub that raises TypeError
+                    child = subprocess.Popen(cmd, preexec_fn=die_with_parent if PRCTL else None, **io)
         except (OSError, subprocess.SubprocessError) as e:
             self.set("error", "Cannot start asw: %s" % e)
             return
@@ -305,13 +307,13 @@ class Plugin:
         return {"ok": True, "name": name}
 
     def options(self, data):
-        if not data:
+        if not data:  # AvNav keeps parameters as strings: "True" from here, "true" from its own edit dialog
             try:
-                with open(self.options_path) as f:
-                    saved = json.load(f)
-                return {k: saved.get(k, v) for k, v in DEFAULT_OPTIONS.items()}
-            except (OSError, ValueError, AttributeError):
-                return dict(DEFAULT_OPTIONS)
+                shore_buffer = float(self.api.getConfigValue("shore_buffer", DEFAULT_OPTIONS["shore_buffer"]))
+            except (TypeError, ValueError):
+                shore_buffer = DEFAULT_OPTIONS["shore_buffer"]
+            return {"shore_buffer": shore_buffer,
+                    "canals": str(self.api.getConfigValue("canals", DEFAULT_OPTIONS["canals"])).lower() == "true"}
         try:
             d = json.loads(data)
             o = {k: d.get(k, v) for k, v in DEFAULT_OPTIONS.items()}
@@ -321,6 +323,6 @@ class Plugin:
                 and isinstance(o["shore_buffer"], (int, float)) and not isinstance(o["shore_buffer"], bool)
                 and 0 <= o["shore_buffer"] <= 5):
             return {"ok": False, "error": "Invalid options."}
-        write_atomic(self.options_path, json.dumps(o))
+        self.api.saveConfigValues(o)
         return o
 

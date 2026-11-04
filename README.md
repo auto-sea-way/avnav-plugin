@@ -19,21 +19,23 @@ The idea comes from [avnav#435](https://github.com/wellenvogel/avnav/issues/435)
 - About 2.1 GB free disk space. The download is about 540 MB and it unpacks to about 1.43 GB.
 - The plugin downloads asw 0.11.0.
 
+I tested this plugin in a Debian arm64 container, and I did not test it on a real Raspberry Pi. If you try it on a Pi, please [open an issue](https://github.com/auto-sea-way/avnav-plugin/issues) and tell me the result, also if it works.
+
 ## Install
 
-1. Download `avnav-asw-<version>.zip` from the releases page.
-2. In AvNav open the Plugins page and upload the zip.
+1. Download `avnav-asw-<version>.zip` from the [releases page](https://github.com/auto-sea-way/avnav-plugin/releases).
+2. In AvNav open the Plugins page, press Upload and select the zip.
 3. Restart AvNav if it asks for it. The plugin status says that the map data is missing.
 4. Connect to Wi-Fi, open the chart page, press "To here" and then "Download map data". The plugin downloads the asw program and the map data and shows the progress. When the map data is ready, it makes the route. The download starts only when you press the button.
 
-The files are stored in the `asw` folder of the AvNav data directory, so they stay when you update the plugin.
+The files are stored in the `asw` folder of the AvNav data directory. To update the plugin, upload the new zip in the same way and confirm. The map data and the options stay.
 
 ## Use
 
 1. Move the chart so that the crosshair is on the destination.
 2. Press "To here". The boat position from GPS is the start. Without a GPS fix the plugin cannot make a route.
 3. Read the result: the distance in nautical miles, the options, a note if the start or the destination is on land, and the warning.
-4. To change the distance from shore (0 to 5 nm) or to avoid canals, press "Options" and then "Make route". The plugin remembers the options for the next route. You can also change them in the settings of the plugin on the AvNav server page.
+4. To change the distance from shore (0 to 5 nm) or to avoid canals, press "Options" and then "Make route". The plugin remembers the options for the next route. You can also change them on the Plugins page: select the plugin and press Config. There `canals` means that canals are allowed.
 5. Change the route name if you want, and press "Save route". If a route with this name exists, the plugin asks before it replaces it.
 6. Check every point of the route on the chart, and use it like any other route. If your AvNav has the plugin function `editRoute`, the route opens in the route editor on the chart after saving. Without it, the plugin shows where the route is saved, and you open it from the Routes page.
 

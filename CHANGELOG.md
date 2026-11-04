@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-04)
 
 - "Route to here" button on the AvNav chart page: one press makes a route over water from the boat to the crosshair with the options from last time. The route is saved after a warning.
 - Options: distance from shore and avoid canals. They are stored as plugin parameters, so you can also change them in the settings of the plugin in AvNav.

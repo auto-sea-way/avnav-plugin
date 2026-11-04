@@ -16,3 +16,5 @@ jobs:
       - uses: softprops/action-gh-release@v2.0.8
         with:
           files: dist/avnav-asw-*.zip
+          body: |
+            Install and warnings: see the [README](https://github.com/auto-sea-way/avnav-plugin#readme). Read the warnings before you use a route. Changes: see [CHANGELOG.md](https://github.com/auto-sea-way/avnav-plugin/blob/main/CHANGELOG.md).

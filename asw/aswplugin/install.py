@@ -61,6 +61,16 @@ def cleanup_stale(graph_path):
         os.unlink(graph_path + ".tmp")
 
 
+def program_version(path):
+    """The version the asw program at path reports, or None if it cannot say."""
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=10, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.fullmatch(r"asw (\S+)\s*", out)
+    return m.group(1) if m else None
+
+
 def download_binary(url, dest):
     part = dest + ".part"
     try:

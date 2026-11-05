@@ -74,13 +74,16 @@ class Plugin:
         self.want_start = False
         self.pending = None  # (id, points) of the last computed route; a newer route call replaces it
         self.route_id = 0
-        self.status = {"state": "starting", "detail": "Starting", "warnings": list(self.warnings), "downloadedMB": 0}
+        self.update_info = None  # {"from", "to", "error"} while another asw version is on offer
+        self.status = {"state": "starting", "detail": "Starting", "warnings": list(self.warnings), "downloadedMB": 0,
+                       "update": None}
         api.registerRestart(self.stop)
 
     # --- status and child process -------------------------------------------------
 
     def set(self, state, detail, mb=0):
-        new = {"state": state, "detail": detail, "warnings": list(self.warnings), "downloadedMB": mb}
+        new = {"state": state, "detail": detail, "warnings": list(self.warnings), "downloadedMB": mb,
+               "update": self.update_info}
         if new != self.status:
             self.status = new
             self.api.setStatus(AVNAV_STATUS[state], " ".join([detail] + self.warnings))
@@ -96,6 +99,7 @@ class Plugin:
             self.set("error", " ".join(errors))
             stopping.wait()  # returning would make AvNav replace the status with "plugin run finished"
             return
+        self.check_program()
         if os.path.exists(self.bin) and os.path.exists(self.graph):
             self.want_start = True
             self.set("starting", "Starting asw")
@@ -127,7 +131,7 @@ class Plugin:
 
     def tick(self):
         c = self.child
-        if self.stopping.is_set():
+        if self.stopping.is_set() or (self.dl and self.dl.is_alive()):
             return
         if c is None:
             if self.want_start or (self.restart_at and time.monotonic() >= self.restart_at):
@@ -224,6 +228,36 @@ class Plugin:
         except Exception as e:
             self.set("error", "Download failed: %s" % e)
 
+    def check_program(self):
+        """A new plugin zip keeps the asw program that is installed, so routes work at sea right after an update.
+        If this plugin version wants another program, offer it; only the sailor starts the download."""
+        have = install.program_version(self.bin)
+        self.update_info = {"from": have, "to": self.asw_version, "error": None} \
+            if have and have != self.asw_version else None
+
+    def update(self):
+        with self.lock:
+            if self.update_info and self.status["state"] == "ready" and not (self.dl and self.dl.is_alive()):
+                self.set("downloading", "Downloading asw %s" % self.update_info["to"])
+                self.dl = threading.Thread(target=self.update_thread, daemon=True, name="asw update")
+                self.dl.start()
+        return self.status
+
+    def update_thread(self):
+        # ponytail: assumes the new program reads the installed map data. A release with a new
+        # graph format also needs a map download; asw would refuse the old file and report it.
+        url = install.release_url(self.asw_version, install.binary_asset(platform.machine()))
+        try:
+            install.download_binary(url, self.bin)  # asw keeps running, and the file changes only if all went well
+        except Exception as e:
+            self.update_info = dict(self.update_info, error=str(e))
+            self.set("ready", "Ready")
+            return
+        self.update_info = None
+        self.kill()
+        self.want_start = True  # the run() thread starts asw, so die_with_parent ties it to that thread
+        self.set("starting", "Starting asw")
+
     # --- HTTP API -------------------------------------------------------------------
 
     def handle(self, url, handler, args):
@@ -233,6 +267,8 @@ class Plugin:
                 return self.status
             if url == "download":
                 return self.download()
+            if url == "update":
+                return self.update()
             if url == "route":
                 return self.route(arg("data"))
             if url == "save":

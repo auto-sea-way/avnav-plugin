@@ -2,7 +2,8 @@
 
 ## 0.1.1 (2026-11-05)
 
-- New installs download asw 0.11.1. Its routes are shorter, because they no longer turn in open water far from any land: Las Palmas to Mindelo at 0.2 nm from shore is 865.2 nm (was 912.8 nm). The map data is the same.
+- The plugin uses asw 0.11.1. Its routes are shorter, because they no longer turn in open water far from any land: Las Palmas to Mindelo at 0.2 nm from shore is 865.2 nm (was 912.8 nm). The map data is the same.
+- A plugin update keeps the installed asw program, so routes keep working. When a newer program is available, the route dialog shows "Update asw". The download starts only when you press it, and if it fails, the old program keeps working.
 
 ## 0.1.0 (2026-11-04)
 

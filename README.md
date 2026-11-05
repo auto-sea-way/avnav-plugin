@@ -28,7 +28,7 @@ I tested this plugin on a Raspberry Pi 4 (4 GB) with Home Assistant OS, in a Deb
 3. Restart AvNav if it asks for it. The plugin status says that the map data is missing.
 4. Connect to Wi-Fi, open the chart page, press "To here" and then "Download map data". The plugin downloads the asw program and the map data and shows the progress. When the map data is ready, it makes the route. The download starts only when you press the button.
 
-The files are stored in the `asw` folder of the AvNav data directory. To update the plugin, upload the new zip in the same way and confirm. The map data and the options stay.
+The files are stored in the `asw` folder of the AvNav data directory. To update the plugin, upload the new zip in the same way and confirm. The map data and the options stay. If the new version wants a newer asw program, the route dialog shows the button "Update asw". The download is about 10 MB and starts only when you press it. Until then the installed program keeps working.
 
 ## Use
 

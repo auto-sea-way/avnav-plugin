@@ -34,6 +34,7 @@ export default (api) => {
     // the map can report a longitude past 180 after panning; keep others as they are (no float noise)
     const lon180 = (lon) => (lon >= -180 && lon <= 180 ? lon : (((lon + 180) % 360) + 360) % 360 - 180);
     let busy = false;
+    let update = null; // the asw update on offer, from the last status
 
     // the boat position and the crosshair now, or the reason why there is none
     const ends = () => {
@@ -106,6 +107,18 @@ export default (api) => {
 
     const optionsButton = (options, ctx) => ({name: "options", shortText: "Options", onClick: () => askOptions(options, ctx)});
 
+    // the status line shows the download, and the route is made again when asw is ready
+    const updateButton = (ctx) => ({
+        name: "update", shortText: "Update asw",
+        onClick: async () => {
+            try {
+                progress(await call("update"), ctx);
+            } catch (e) {
+                say(e.message, ctx);
+            }
+        }
+    });
+
     const result = (r, options, ctx) => {
         let saving = false;
         return api.showDialog({
@@ -113,6 +126,8 @@ export default (api) => {
         html: Htm`<div className="aswResult">
             <p>Distance: <b>${r.distance_nm.toFixed(1)} nm</b></p>
             <p>Options: ${options.shore_buffer} nm from shore, canals ${options.canals ? "allowed" : "avoided"}</p>
+            ${update && Htm`<p>${update.error ? `The update failed: ${update.error}`
+                : `asw ${update.to} is available and can make better routes. You have ${update.from}. The download is about 10 MB.`}</p>`}
             ${r.land.map((n) => Htm`<p className="aswLand">${ON_LAND[n] || n}</p>`)}
             <p className="aswWarning">${WARNING}</p>
         </div>`,
@@ -121,6 +136,7 @@ export default (api) => {
         buttons: [
             {name: "cancel", shortText: "Cancel"},
             optionsButton(options, ctx),
+            ...(update ? [updateButton(ctx)] : []),
             {
                 name: "ok", shortText: "Save route", close: false,
                 onClick: async (ev, values, close) => {
@@ -220,6 +236,7 @@ export default (api) => {
         } catch (e) {
             return say(e.message, ctx);
         }
+        update = status.update;
         if (status.state !== "ready") return notReady(status, ctx);
         const o = await call("options").catch(() => DEFAULT_OPTIONS);
         makeRoute("shore_buffer" in o ? {shore_buffer: o.shore_buffer, canals: o.canals} : DEFAULT_OPTIONS, ctx, ctx);

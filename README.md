@@ -17,7 +17,7 @@ The idea comes from [avnav#435](https://github.com/wellenvogel/avnav/issues/435)
 - Linux, arm64 or x86_64. For a Raspberry Pi this means Pi 4 or 5 with a 64-bit OS.
 - 2 GB RAM or more. With less RAM the plugin works but routing is slow.
 - About 2.1 GB free disk space. The download is about 540 MB and it unpacks to about 1.43 GB.
-- The plugin downloads asw 0.11.0.
+- The plugin downloads asw 0.11.1.
 
 I tested this plugin on a Raspberry Pi 4 (4 GB) with Home Assistant OS, in a Debian environment. I did not test it on Raspberry Pi OS, on the AvNav image or on a Pi 5. If you try it on one of these, please [open an issue](https://github.com/auto-sea-way/avnav-plugin/issues) and tell me the result, also if it works.
 
